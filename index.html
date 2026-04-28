@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>SAM PROTOCOL — ППО України</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+        }
+        body {
+            background: #050505;
+            font-family: 'Courier New', 'Fira Code', 'Monaco', monospace;
+            overflow: hidden;
+            height: 100vh;
+            width: 100vw;
+        }
+        #map {
+            height: 100vh;
+            width: 100vw;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+        }
+        .terminal-ui {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 100;
+            pointer-events: none;
+        }
+        .terminal-ui * {
+            pointer-events: auto;
+        }
+        .top-bar {
+            background: rgba(10,10,10,0.9);
+            border-bottom: 1px solid #0f0;
+            padding: 10px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 20px;
+            backdrop-filter: blur(10px);
+        }
+        .logo { color: #0f0; font-weight: bold; font-size: 14px; letter-spacing: 1px; }
+        .menu-links { display: flex; gap: 25px; }
+        .menu-link { color: #0a5; cursor: pointer; font-size: 12px; }
+        .menu-link:hover { color: #0f0; text-shadow: 0 0 3px #0f0; }
+        .balance-area { color: #fa0; font-weight: bold; font-size: 13px; }
+        .time-area { color: #58a; font-family: monospace; font-size: 12px; }
+        .terminal-window {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            right: 20px;
+            background: rgba(10,10,10,0.95);
+            border: 1px solid #0f0;
+            z-index: 1000;
+            display: none;
+            flex-direction: column;
+            backdrop-filter: blur(10px);
+        }
+        .terminal-window.open { display: flex; }
+        .terminal-header {
+            background: #0a0;
+            color: #000;
+            padding: 8px 15px;
+            font-weight: bold;
+            display: flex;
+            justify-content: space-between;
+        }
+        .terminal-body { padding: 20px; max-height: 55vh; overflow-y: auto; }
+        .shop-grid { display: flex; gap: 20px; justify-content: center; flex-wrap: wrap; }
+        .shop-card {
+            border: 1px solid #0a0;
+            padding: 15px 20px;
+            cursor: pointer;
+            text-align: center;
+            min-width: 140px;
+            background: #0a150a;
+        }
+        .shop-card:hover, .shop-card.active { background: #0a0; color: #000; }
+        .shop-card .icon-emoji { font-size: 48px; margin-bottom: 8px; }
+        .shop-card .price { color: #fa0; font-size: 11px; margin-top: 8px; }
+        .radar-panel {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            width: 150px;
+            background: rgba(5,5,5,0.9);
+            border: 1px solid #0a0;
+            padding: 8px;
+            z-index: 100;
+            backdrop-filter: blur(8px);
+        }
+        .radar-title { font-size: 9px; color: #0a0; text-align: center; margin-bottom: 5px; }
+        canvas#radarCanvas { width: 100%; background: #0a1a0a; }
+        .monitor-panel {
+            position: fixed;
+            top: 80px;
+            right: 20px;
+            width: 200px;
+            background: rgba(10,10,10,0.9);
+            border: 1px solid #0a0;
+            padding: 10px;
+            z-index: 100;
+            font-size: 10px;
+            backdrop-filter: blur(8px);
+        }
+        .monitor-title { color: #0f0; border-bottom: 1px solid #0a0; padding-bottom: 4px; margin-bottom: 8px; }
+        .monitor-row { display: flex; justify-content: space-between; margin-bottom: 5px; color: #6a8; }
+        .status-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: rgba(5,5,5,0.9);
+            border-top: 1px solid #0a0;
+            padding: 5px 20px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 10px;
+            color: #586;
+            z-index: 100;
+            backdrop-filter: blur(8px);
+        }
+        @keyframes blink { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+        .threat-alert { animation: blink 0.8s infinite; color: #f44; }
+        .drone-marker { filter: drop-shadow(0 0 3px #f44); }
+        .unit-marker { filter: drop-shadow(0 0 3px #0f0); }
+        .leaflet-control-attribution { background: rgba(0,0,0,0.6) !important; color: #486 !important; font-size: 8px !important; z-index: 50 !important; }
+        ::-webkit-scrollbar { width: 5px; background: #0a0a0a; }
+        ::-webkit-scrollbar-thumb { background: #0a0; }
+        @media (max-width: 700px) {
+            .monitor-panel { display: none; }
+            .radar-panel { width: 100px; bottom: 40px; }
+            .top-bar { flex-direction: column; align-items: stretch; }
+        }
+    </style>
+</head>
+<body>
+<div id="map"></div>
+<div class="terminal-ui">
+    <div class="top-bar">
+        <div class="logo">▶ SAM PROTOCOL (DEMO)</div>
+        <div class="menu-links">
+            <span class="menu-link" data-tab="shop">МАГАЗИН</span>
+            <span class="menu-link" data-tab="stats">СТАТИСТИКА</span>
+            <span class="menu-link" data-tab="help">ДОВІДКА</span>
+        </div>
+        <div class="balance-area">💰 БАЛАНС: <span id="balanceDisplay">15000</span> ₴</div>
+        <div class="time-area" id="timeDisplay">ДЕНЬ 1 | 09:41</div>
+    </div>
+</div>
+<div class="radar-panel">
+    <div class="radar-title">⚡ RADAR ARRAY</div>
+    <canvas id="radarCanvas" width="130" height="130"></canvas>
+</div>
+<div class="monitor-panel">
+    <div class="monitor-title">📡 THREAT MONITOR</div>
+    <div class="monitor-row">АКТИВНІ ЦІЛІ: <span id="threatCount">0</span></div>
+    <div class="monitor-row">ЗБИТО: <span id="killsDisplay">0</span></div>
+    <div class="monitor-row" id="threatStatus">СТАТУС: 🟢 НОРМАЛЬНО</div>
+</div>
+<div class="terminal-window" id="shopWindow">
+    <div class="terminal-header">
+        <span>⚡ SAM PROTOCOL — ТЕРМІНАЛ ЗАКУПІВЛІ</span>
+        <span style="cursor:pointer" id="closeShop">[X]</span>
+    </div>
+    <div class="terminal-body">
+        <div class="shop-grid">
+            <div class="shop-card" data-unit="pickup">
+                <div class="icon-emoji">🔫</div>
+                <div>ПІКАП 12.7мм</div>
+                <div class="price">5 500 ₴</div>
+            </div>
+            <div class="shop-card" data-unit="shilka">
+                <div class="icon-emoji">⚡</div>
+                <div>ЗСУ-23-4 "ШИЛКА"</div>
+                <div class="price">12 000 ₴</div>
+            </div>
+            <div class="shop-card" data-unit="reb">
+                <div class="icon-emoji">📡</div>
+                <div>РЕБ (ГЛУШІННЯ)</div>
+                <div class="price">8 000 ₴</div>
+            </div>
+        </div>
+        <div style="margin-top:15px; font-size:10px; color:#486; text-align:center;">> ОБЕРІТЬ ЗБРОЮ ТА КЛІКНІТЬ НА КАРТІ УКРАЇНИ</div>
+    </div>
+</div>
+<div class="status-bar">
+    <span>Шаблон - (928373)</span>
+    <span>SAM Protocol (DEMO) by C</span>
+    <span id="clockStatus">19:39 | 28.04.2026</span>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+(function(){
+    // Міста України
+    const CITIES = [
+        { name: "КИЇВ", lat: 50.45, lng: 30.52 },
+        { name: "ХАРКІВ", lat: 49.99, lng: 36.23 },
+        { name: "ДНІПРО", lat: 48.46, lng: 35.04 },
+        { name: "ОДЕСА", lat: 46.48, lng: 30.73 },
+        { name: "ЛЬВІВ", lat: 49.84, lng: 24.03 },
+        { name: "ЗАПОРІЖЖЯ", lat: 47.84, lng: 35.14 },
+        { name: "ВІННИЦЯ", lat: 49.23, lng: 28.48 },
+        { name: "ЧЕРКАСИ", lat: 49.44, lng: 32.06 },
+        { name: "ПОЛТАВА", lat: 49.59, lng: 34.55 },
+        { name: "СУМИ", lat: 50.91, lng: 34.80 }
+    ];
+    // Точки запуску з РФ
+    const LAUNCH_POINTS = [
+        { name: "БЄЛГОРОД", lat: 50.60, lng: 36.60 },
+        { name: "КУРСЬК", lat: 51.73, lng: 36.18 },
+        { name: "ВОРОНЄЖ", lat: 51.67, lng: 39.18 },
+        { name: "РОСТОВ", lat: 47.23, lng: 39.70 },
+        { name: "КРИМ", lat: 44.61, lng: 33.52 },
+        { name: "БРЯНСЬК", lat: 53.24, lng: 34.36 },
+        { name: "МІЛЛЄРОВО", lat: 48.92, lng: 40.39 }
+    ];
+    // Характеристики зброї
+    const UNITS = {
+        pickup: { name: "ПІКАП 12.7мм", price: 5500, range: 80, cooldown: 1600, damage: 45, color: "#fa0" },
+        shilka: { name: "ШИЛКА 23мм", price: 12000, range: 120, cooldown: 800, damage: 85, color: "#f64" },
+        reb: { name: "РЕБ", price: 8000, range: 45, cooldown: 2000, damage: 0, isJammer: true, jamRadius: 50, color: "#a8f" }
+    };
+    // Полігон України
+    const UKRAINE_POLYGON = [
+        [52.3, 22.1], [52.2, 33.5], [50.2, 40.0], [46.0, 40.0], 
+        [44.3, 33.9], [45.2, 29.0], [48.0, 22.1]
+    ];
+    function pointInPolygon(lat,lng,poly){
+        let inside=false;
+        for(let i=0,j=poly.length-1;i<poly.length;j=i++){
+            const xi=poly[i][0], yi=poly[i][1];
+            const xj=poly[j][0], yj=poly[j][1];
+            const intersect=((yi>lng)!=(yj>lng)) && (lat<(xj-xi)*(lng-yi)/(yj-yi)+xi);
+            if(intersect) inside=!inside;
+        }
+        return inside;
+    }
+    function isInsideUkraine(lat,lng){ return pointInPolygon(lat,lng,UKRAINE_POLYGON); }
+
+    let playerBalance=15000;
+    let totalKills=0;
+    let selectedUnit=null;
+    let deployedUnits=[];
+    let drones=[];
+    let map, radarCtx, lastFrameTime=0, lastSpawnTime=0;
+    let gameTime={day:1,hour:9,minute:41};
+
+    function updateUI(){
+        document.getElementById('balanceDisplay').innerText=Math.floor(playerBalance).toLocaleString();
+        document.getElementById('killsDisplay').innerText=totalKills;
+        const active= drones.filter(d=>d.isAlive && !d.isJammed).length;
+        document.getElementById('threatCount').innerText=active;
+        const threatStatus=document.getElementById('threatStatus');
+        if(drones.length>8){ threatStatus.innerHTML="СТАТУС: 🔴 КРИТИЧНО!"; threatStatus.className="monitor-row threat-alert"; }
+        else if(drones.length>0){ threatStatus.innerHTML="СТАТУС: 🟡 УВАГА!"; threatStatus.className="monitor-row"; }
+        else{ threatStatus.innerHTML="СТАТУС: 🟢 НОРМАЛЬНО"; threatStatus.className="monitor-row"; }
+        document.getElementById('timeDisplay').innerHTML=`ДЕНЬ ${gameTime.day} | ${String(gameTime.hour).padStart(2,'0')}:${String(gameTime.minute).padStart(2,'0')}`;
+        const now=new Date();
+        document.getElementById('clockStatus').innerHTML=`${String(gameTime.hour).padStart(2,'0')}:${String(gameTime.minute).padStart(2,'0')} | ${String(now.getDate()).padStart(2,'0')}.${String(now.getMonth()+1).padStart(2,'0')}.2026`;
+    }
+    function addMoney(amt){ playerBalance+=amt; updateUI(); showFloatingText(`+${amt}₴`,'#0f0'); }
+    function showFloatingText(text,color,latLng=null){
+        if(!latLng && map) latLng=map.getCenter();
+        if(!latLng) return;
+        const point=map.latLngToContainerPoint(latLng);
+        const div=document.createElement('div');
+        div.textContent=text;
+        div.style.cssText=`position:absolute; left:${point.x}px; top:${point.y}px; color:${color}; font-weight:bold; font-size:14px; text-shadow:0 0 5px black; pointer-events:none; z-index:2000; transition:all 1s ease-out; white-space:nowrap; font-family:monospace;`;
+        document.body.appendChild(div);
+        setTimeout(()=>{ div.style.transform='translateY(-30px)'; div.style.opacity='0'; setTimeout(()=>div.remove(),1000); },10);
+    }
+    function getDistanceKm(lat1,lng1,lat2,lng2){
+        const R=6371;
+        const dLat=(lat2-lat1)*Math.PI/180, dLon=(lng2-lng1)*Math.PI/180;
+        const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+        return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+    }
+
+    class Drone {
+        constructor(start,target){
+            this.startLat=start.lat; this.startLng=start.lng;
+            this.target=target;
+            this.currentLat=start.lat; this.currentLng=start.lng;
+            this.progress=0; this.hp=100; this.isAlive=true;
+            this.speed=0.014; this.isJammed=false; this.jamEndTime=0;
+            this.marker=null;
+        }
+        update(dt){
+            if(!this.isAlive) return;
+            if(this.isJammed && Date.now()<this.jamEndTime) return;
+            else this.isJammed=false;
+            this.progress+=this.speed*dt*0.03;
+            if(this.progress>=1){
+                this.isAlive=false;
+                playerBalance=Math.max(0,playerBalance-1500);
+                showFloatingText(`-1500₴ (${this.target.name} атаковано)`,'#f44',[this.currentLat,this.currentLng]);
+                if(this.marker) map.removeLayer(this.marker);
+                updateUI();
+                return;
+            }
+            this.currentLat=this.startLat+(this.target.lat-this.startLat)*this.progress;
+            this.currentLng=this.startLng+(this.target.lng-this.startLng)*this.progress;
+            if(this.marker) this.marker.setLatLng([this.currentLat,this.currentLng]);
+        }
+        render(){
+            if(!this.isAlive) return;
+            if(!this.marker){
+                const icon=L.divIcon({html:'✈', iconSize:[28,28], className:'drone-marker', iconAnchor:[14,14]});
+                this.marker=L.marker([this.currentLat,this.currentLng],{icon}).addTo(map);
+            }
+            if(this.marker._icon){
+                this.marker._icon.style.filter=this.isJammed?'hue-rotate(180deg)':'';
+                this.marker._icon.style.opacity=this.isJammed?'0.6':'1';
+            }
+        }
+        destroy(){
+            if(!this.isAlive) return;
+            this.isAlive=false;
+            if(this.marker) map.removeLayer(this.marker);
+            totalKills++;
+            addMoney(1200);
+            showFloatingText('💥 ЗБИТО! +1200₴','#fa0',[this.currentLat,this.currentLng]);
+        }
+        applyJam(dur=3500){ this.isJammed=true; this.jamEndTime=Date.now()+dur; }
+    }
+
+    class DefenseUnit {
+        constructor(type,lat,lng){
+            this.type=type; this.lat=lat; this.lng=lng;
+            this.data=UNITS[type];
+            this.lastShotTime=0; this.marker=null; this.rangeCircle=null;
+            this.ammo=(type==='pickup')?300:(type==='shilka')?700:1;
+        }
+        canShoot(){ return Date.now()-this.lastShotTime>=this.data.cooldown && this.ammo>0 && this.data.damage>0; }
+        shootAt(drone){
+            if(!this.canShoot()) return false;
+            const dist=getDistanceKm(this.lat,this.lng,drone.currentLat,drone.currentLng);
+            if(dist<=this.data.range){
+                this.lastShotTime=Date.now();
+                this.ammo--;
+                drone.hp-=this.data.damage;
+                this.showEffect(drone.currentLat,drone.currentLng);
+                if(drone.hp<=0) drone.destroy();
+                return true;
+            }
+            return false;
+        }
+        jamDrones(list){
+            if(this.type!=='reb') return;
+            for(let d of list){
+                const dist=getDistanceKm(this.lat,this.lng,d.currentLat,d.currentLng);
+                if(dist<=this.data.jamRadius && d.isAlive && !d.isJammed) d.applyJam(4000);
+            }
+        }
+        showEffect(lat,lng){
+            const point=map.latLngToContainerPoint([lat,lng]);
+            const div=document.createElement('div');
+            div.innerHTML='💥';
+            div.style.cssText=`position:absolute; left:${point.x}px; top:${point.y}px; font-size:18px; pointer-events:none; z-index:2000; transition:all 0.2s ease-out;`;
+            document.body.appendChild(div);
+            setTimeout(()=>{ div.style.transform='scale(1.5)'; div.style.opacity='0'; setTimeout(()=>div.remove(),300); },10);
+        }
+        render(){
+            if(!this.marker){
+                const icon=L.divIcon({html:this.type==='pickup'?'🔫':(this.type==='shilka'?'⚡':'📡'), iconSize:[32,32], className:'unit-marker', iconAnchor:[16,16]});
+                this.marker=L.marker([this.lat,this.lng],{icon}).addTo(map);
+                this.rangeCircle=L.circle([this.lat,this.lng],{radius:this.data.range*1000, color:this.data.color, fillColor:this.data.color, fillOpacity:0.1, weight:1}).addTo(map);
+            }
+            this.marker.bindTooltip(`${this.data.name} | 🎯${this.ammo}`,{sticky:true});
+        }
+    }
+
+    function drawRadar(){
+        if(!radarCtx||!map) return;
+        const canvas=document.getElementById('radarCanvas');
+        canvas.width=130; canvas.height=130;
+        const w=130,h=130;
+        radarCtx.clearRect(0,0,w,h);
+        radarCtx.fillStyle='#0a1a0a';
+        radarCtx.fillRect(0,0,w,h);
+        radarCtx.strokeStyle='#0f0';
+        radarCtx.beginPath();
+        radarCtx.arc(w/2,h/2,w/2-2,0,2*Math.PI);
+        radarCtx.stroke();
+        const mapSize=map.getSize();
+        for(let d of drones){
+            if(!d.isAlive) continue;
+            const point=map.latLngToContainerPoint([d.currentLat,d.currentLng]);
+            const rx=(point.x/mapSize.x)*w, ry=(point.y/mapSize.y)*h;
+            if(rx>=0 && rx<=w && ry>=0 && ry<=h){
+                radarCtx.fillStyle=d.isJammed?'#fa0':'#f44';
+                radarCtx.beginPath();
+                radarCtx.arc(rx,ry,3,0,2*Math.PI);
+                radarCtx.fill();
+            }
+        }
+        for(let u of deployedUnits){
+            const point=map.latLngToContainerPoint([u.lat,u.lng]);
+            const rx=(point.x/mapSize.x)*w, ry=(point.y/mapSize.y)*h;
+            if(rx>=0 && rx<=w && ry>=0 && ry<=h){
+                radarCtx.fillStyle=u.data.color;
+                radarCtx.fillRect(rx-2,ry-2,4,4);
+            }
+        }
+    }
+
+    function gameUpdate(){
+        const now=Date.now();
+        let dt=Math.min(100,now-lastFrameTime);
+        if(dt<0) dt=16;
+        lastFrameTime=now;
+        if(Math.random()<0.02){
+            gameTime.minute++;
+            if(gameTime.minute>=60){ gameTime.minute=0; gameTime.hour++; if(gameTime.hour>=24){ gameTime.hour=0; gameTime.day++; } }
+            updateUI();
+        }
+        for(let i=0;i<drones.length;i++){
+            drones[i].update(dt/1000);
+            if(!drones[i].isAlive) { drones.splice(i,1); i--; }
+        }
+        for(let u of deployedUnits) if(u.type==='reb') u.jamDrones(drones);
+        for(let u of deployedUnits){
+            if(u.data.damage>0){
+                for(let d of drones){
+                    u.shootAt(d);
+                    if(!d.isAlive) break;
+                }
+            }
+        }
+        for(let u of deployedUnits) u.render();
+        for(let d of drones) d.render();
+        drawRadar();
+        updateUI();
+    }
+
+    function spawnDrone(){
+        const now=Date.now();
+        const interval=Math.max(3000,5000-Math.floor(totalKills/30)*100);
+        if(now-lastSpawnTime<interval) return;
+        if(drones.length>=25) return;
+        const start=LAUNCH_POINTS[Math.floor(Math.random()*LAUNCH_POINTS.length)];
+        const target=CITIES[Math.floor(Math.random()*CITIES.length)];
+        drones.push(new Drone(start,target));
+        lastSpawnTime=now;
+        updateUI();
+    }
+
+    function init(){
+        map=L.map('map').setView([48.9,31.5],6.5);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{attribution:'© OpenStreetMap'}).addTo(map);
+        L.polygon(UKRAINE_POLYGON,{color:'#0f0',weight:1.5,fillOpacity:0.03}).addTo(map);
+        radarCtx=document.getElementById('radarCanvas').getContext('2d');
+
+        map.on('click',(e)=>{
+            if(!selectedUnit){ alert("⚡ Оберіть зброю в МАГАЗИНІ!"); return; }
+            if(!isInsideUkraine(e.latlng.lat,e.latlng.lng)){ alert("❌ Розміщення дозволене тільки на території України!"); return; }
+            if(playerBalance<UNITS[selectedUnit].price){ alert("💰 Недостатньо коштів!"); return; }
+            playerBalance-=UNITS[selectedUnit].price;
+            const unit=new DefenseUnit(selectedUnit,e.latlng.lat,e.latlng.lng);
+            deployedUnits.push(unit);
+            unit.render();
+            updateUI();
+            selectedUnit=null;
+            document.querySelectorAll('.shop-card').forEach(c=>c.classList.remove('active'));
+        });
+
+        document.querySelectorAll('.shop-card').forEach(card=>{
+            card.addEventListener('click',(e)=>{
+                e.stopPropagation();
+                const unitType=card.dataset.unit;
+                if(selectedUnit===unitType){ selectedUnit=null; card.classList.remove('active'); }
+                else{ document.querySelectorAll('.shop-card').forEach(c=>c.classList.remove('active')); selectedUnit=unitType; card.classList.add('active'); }
+            });
+        });
+
+        document.getElementById('closeShop').addEventListener('click',()=>{ document.getElementById('shopWindow').classList.remove('open'); });
+        document.querySelectorAll('.menu-link').forEach(link=>{
+            link.addEventListener('click',()=>{
+                const tab=link.dataset.tab;
+                if(tab==='shop') document.getElementById('shopWindow').classList.toggle('open');
+                else if(tab==='stats') alert(`📊 СТАТИСТИКА\n━━━━━━━━━━━━━━━\nЗбито дронів: ${totalKills}\nАктивних установок: ${deployedUnits.length}\nДронів в небі: ${drones.length}\nБаланс: ${Math.floor(playerBalance)}₴`);
+                else if(tab==='help') alert(`📖 ДОВІДКА\n━━━━━━━━━━━━━━━\n1. Відкрийте МАГАЗИН\n2. Оберіть зброю\n3. Клікніть на карті України\n4. Установки стріляють автоматично\n5. РЕБ глушить дрони в радіусі\n\n🚁 Шахеди летять з РФ!`);
+            });
+        });
+        // Демо-установка для зручності
+        setTimeout(()=>{
+            if(deployedUnits.length===0){
+                const demo=new DefenseUnit('pickup',49.59,34.55);
+                deployedUnits.push(demo);
+                demo.render();
+            }
+        },500);
+        lastFrameTime=Date.now();
+        setInterval(gameUpdate,50);
+        setInterval(spawnDrone,800);
+        updateUI();
+    }
+    window.onload=init;
+})();
+</script>
+</body>
+</html>
